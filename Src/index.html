@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial; text-align: center; padding: 20px; background: #f0f0f0; }
+        #video { max-width: 100%; border: 2px solid #333; background: #000; cursor: crosshair; }
+        .controls { margin: 15px auto; padding: 10px; background: #fff; border-radius: 5px; max-width: 400px; }
+        button { padding: 12px; margin: 5px; font-size: 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; }
+        .target-btn { background: #FF9800; }
+        .clear-btn { background: #f44336; }
+        .record-btn { background: #2196F3; }
+        .status { margin: 10px; padding: 10px; background: #e7f3fe; border-radius: 5px; }
+        #targetInfo { font-weight: bold; color: #FF9800; }
+        #roverInfo { font-weight: bold; color: #4CAF50; }
+        .info { margin: 10px; padding: 10px; background: #d4edda; border-radius: 5px; }
+        .recording { background: #f44336 !important; }
+        .stats { margin: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Rover Navigation System</h1>
+    
+    <div class="status">
+        <p>Rover: <span id="roverInfo">Not detected</span></p>
+        <p>Target: <span id="targetInfo">Not set</span></p>
+        <p>Transmission: <span id="transmissionTime">0</span> ms</p>
+        <p>Recording: <span id="recordingStatus">No</span></p>
+    </div>
+    
+    <div class="stats">
+        <p>Frame Processing: <span id="processingTime">0</span> ms</p>
+        <p>Command Execution: <span id="commandTime">0</span> ms</p>
+    </div>
+    
+    <img src="/video_feed" id="video" onclick="setTarget(event)">
+    
+      
+    <div class="controls">
+        <button onclick="setTargetMode()" class="target-btn">Set Target Mode</button>
+        <button onclick="clearTarget()" class="clear-btn">Clear Target</button>
+        <button onclick="startNavigation()">Start Navigation</button>
+        <button onclick="stopNavigation()">Stop Navigation</button>
+        <button id="recordBtn" class="record-btn" onclick="toggleRecording()">Start Recording</button>
+    </div>
+
+    <script>
+        let transmissionStartTime = 0;
+        let targetMode = false;
+        let isRecording = false;
+        const recordBtn = document.getElementById('recordBtn');
+        
+        // Calculate transmission time
+        const video = document.getElementById('video');
+        video.onloadstart = function() {
+            transmissionStartTime = performance.now();
+        };
+        
+        video.onload = function() {
+            const transmissionTime = performance.now() - transmissionStartTime;
+            document.getElementById('transmissionTime').textContent = transmissionTime.toFixed(2);
+        };
+        
+        function setTargetMode() {
+            targetMode = true;
+            alert('Click on the video to set target location');
+        }
+        
+        function setTarget(event) {
+            if (!targetMode) return;
+            
+            const rect = video.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            
+            const videoWidth = video.videoWidth || 640;
+            const videoHeight = video.videoHeight || 480;
+            const displayWidth = video.width;
+            const displayHeight = video.height;
+            
+            const scaleX = videoWidth / displayWidth;
+            const scaleY = videoHeight / displayHeight;
+            
+            const targetX = Math.round(x * scaleX);
+            const targetY = Math.round(y * scaleY);
+            
+            fetch('/set_target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ x: targetX, y: targetY })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    document.getElementById('targetInfo').textContent = `(${targetX}, ${targetY})`;
+                    targetMode = false;
+                    alert('Target set successfully!');
+                } else {
+                    alert('Failed to set target: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error setting target:', error);
+                alert('Error setting target');
+            });
+        }
+        
+        function clearTarget() {
+            fetch('/clear_target')
+            .then(() => {
+                document.getElementById('targetInfo').textContent = 'Not set';
+            });
+        }
+        
+        function startNavigation() {
+            fetch('/start_navigation')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'navigation_started') {
+                    alert('Navigation started!');
+                } else if (data.status === 'no_target') {
+                    alert('Please set a target first!');
+                } else {
+                    alert('Error starting navigation');
+                }
+            });
+        }
+        
+        function stopNavigation() {
+            fetch('/stop_navigation')
+            .then(() => {
+                alert('Navigation stopped');
+            });
+        }
+        
+        function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+        
+        function startRecording() {
+            fetch('/start_recording')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'recording_started') {
+                    isRecording = true;
+                    recordBtn.textContent = 'Stop Recording';
+                    recordBtn.classList.add('recording');
+                    document.getElementById('recordingStatus').textContent = 'Yes';
+                }
+            });
+        }
+        
+        function stopRecording() {
+            fetch('/stop_recording')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'recording_stopped') {
+                    isRecording = false;
+                    recordBtn.textContent = 'Start Recording';
+                    recordBtn.classList.remove('recording');
+                    document.getElementById('recordingStatus').textContent = 'No';
+                }
+            });
+        }
+        
+        
+        setInterval(() => {
+            fetch('/get_status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.rover_position) {
+                    document.getElementById('roverInfo').textContent = 
+                        `(${Math.round(data.rover_position.x)}, ${Math.round(data.rover_position.y)}) - ${data.rover_heading}°`;
+                }
+                if (data.target) {
+                    document.getElementById('targetInfo').textContent = 
+                        `(${Math.round(data.target.x)}, ${Math.round(data.target.y)})`;
+                }
+                if (data.avg_processing_time) {
+                    document.getElementById('processingTime').textContent = data.avg_processing_time.toFixed(2);
+                }
+                if (data.avg_command_time) {
+                    document.getElementById('commandTime').textContent = data.avg_command_time.toFixed(2);
+                }
+            });
+        }, 3000);
+        
+        video.onerror = function() {
+            this.src = "/video_feed?" + Date.now();
+        };
+    </script>
+</body>
+</html>
